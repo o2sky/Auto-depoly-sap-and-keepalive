@@ -9,9 +9,9 @@ jobs:
   restart-sg-apps:
     runs-on: ubuntu-latest
     name: Restart SG Apps
-    if: always()  
+    if: always()
     continue-on-error: true
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -36,10 +36,10 @@ jobs:
       id: get-sg-apps
       run: |
         # 获取所有应用名称（跳过前 3 行提示和表头）
-        apps=$(cf apps | awk 'NR>3 {print $1}' | grep -v '^$')
+        apps=$(cf apps | awk 'NR>3 {print \$1}' | grep -v '^$')
         echo "发现的应用:"
         echo "$apps"
-        
+
         # 直接输出到 GITHUB_OUTPUT（多行字符串）
         echo "apps<<EOF" >> $GITHUB_OUTPUT
         echo "$apps" >> $GITHUB_OUTPUT
@@ -54,10 +54,10 @@ jobs:
           echo "在区域 SG 中未找到任何应用"
           exit 0
         fi
-        
+
         echo "重启区域 SG 中的应用:"
         echo "$apps"
-        
+
         # 重启每个应用
         for app in $apps; do
           echo "正在重启应用: $app"
@@ -75,9 +75,9 @@ jobs:
   restart-us-apps:
     runs-on: ubuntu-latest
     name: Restart US Apps
-    if: always()  
+    if: always()
     continue-on-error: true
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -102,10 +102,10 @@ jobs:
       id: get-us-apps
       run: |
         # 获取所有应用名称（跳过前 3 行提示和表头）
-        apps=$(cf apps | awk 'NR>3 {print $1}' | grep -v '^$')
+        apps=$(cf apps | awk 'NR>3 {print \$1}' | grep -v '^$')
         echo "发现的应用:"
         echo "$apps"
-        
+
         # 直接输出到 GITHUB_OUTPUT（多行字符串）
         echo "apps<<EOF" >> $GITHUB_OUTPUT
         echo "$apps" >> $GITHUB_OUTPUT
@@ -120,10 +120,10 @@ jobs:
           echo "在区域 US 中未找到任何应用"
           exit 0
         fi
-        
+
         echo "重启区域 US 中的应用:"
         echo "$apps"
-        
+
         # 重启每个应用
         for app in $apps; do
           echo "正在重启应用: $app"
@@ -137,3 +137,29 @@ jobs:
       run: |
         echo "区域 US 中所有应用的最终状态:"
         cf apps
+
+  notify-telegram:
+    runs-on: ubuntu-latest
+    name: Send TG Notification
+    # 确保这个 Job 在 restart-sg-apps 和 restart-us-apps Jobs 之后运行
+    # 并且即使前面的 Jobs 失败也会运行
+    needs: [restart-sg-apps, restart-us-apps]
+    if: always()
+    steps:
+      - name: Send notification on workflow completion
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }} # 替换为您的 Telegram Chat ID
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }} # 替换为您的 Telegram Bot Token
+          # 根据 Github.event_name (schedule, workflow_dispatch) 来定制消息
+          # event_name = schedule 表示是定时任务
+          # event_name = workflow_dispatch 表示是手动触发
+          message: |
+            SAP 自动保活任务完成！
+            工作流状态: ${{ job.status }}
+            触发方式: ${{ github.event_name == 'schedule' && '定时触发' || github.event_name == 'workflow_dispatch' && '手动触发' || github.event_name }}
+            运行链接: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            {{ github.event_name == 'schedule' && '' || '
+            触发者: ${{ github.actor }}
+            ' }}
+            {{ job.status == 'success' && '✅ 任务成功！' || job.status == 'cancelled' && '⚠️ 任务已取消！' || job.status == 'skipped' && '⏭️ 任务已跳过！' || '❌ 任务失败！' }}
